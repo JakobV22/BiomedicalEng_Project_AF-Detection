@@ -29,7 +29,7 @@ sortedTrQRS1 = sort(trQRSVariationScore1, 'descend');
 sortedTrQRS1(50)
 
 
-
+counter=0;
 %%%%%%%%%%
 %% Process Data Files (Feature Extraction)
 for n=1:height(datTable)
@@ -70,42 +70,25 @@ for n=1:height(datTable)
     d3 = wrcoef('d', c, l, 'sym4', 3);  
     d4 = wrcoef('d', c, l, 'sym4', 4);
     d5 = wrcoef('d', c, l, 'sym4', 5);
-    y = d3 + d4 + d5 ;                      %ursprünglich 4 und 5, aber 3 und 4 besser als 4 und 5
-    %Wavelet Transform Sym 4 for QRS-Detection
-    %Plot R-Peaks
-    %wt = modwt(ECG,5);
-    %wtrec = zeros(size(wt));
-    %wtrec(4:5,:) = wt(4:5,:);
-    %y = imodwt(wtrec,'sym4');
-
+    a3=1;
+    a4=1;
+    a5=1;
+    y = a3*d3 + a4*d4 +a5*d5 ;                      %ursprünglich 4 und 5, aber 3 und 4 besser als 4 und 5
+   
     y = abs(y).^2;
     y2 = y;
     percentileThreshold = prctile(y, 95);
     y2 = y2(y2<percentileThreshold);
     qrspeaks = [];
     
-    %Moving Window Test
-    % for k=1:200:length(y)-200
-    %     ySegment = y(k:k+200);
-    %     timeSegment = time(k:k+200);
-    %     if k<100
-    % 
-    %         peak5= maxk(y(1:k+300), 5);
-    %         localThreshhold = (mean(y(1:k+300))- 5/(k+300-1) * mean(peak5))*4;
-    %     elseif k > length(y) -300
-    %         peak5= maxk(y(k-100:length(y)), 5);
-    %         localThreshhold= (mean(y(k-100:length(y)))- 5/(length(y)-k+100) * mean(peak5))*4;
-    %     else
-    %         peak5= maxk(y(k-100:k+300), 5);
-    %         localThreshhold= (mean(y(k-100:k+300))- 5/400 * mean(peak5))*4;
-    %     end
-    % 
-    %     [localQrsPeaks, localLocs] = findpeaks(ySegment, timeSegment, 'MinPeakHeight', localThreshhold, 'MinPeakDistance',0.3);
-    %     locs = [locs, localLocs];
-    %     qrspeaks = [qrspeaks, localQrsPeaks];
-    % end
+    [qrspeaksPRE,locsPRE] = findpeaks(y,time,'MinPeakHeight',mean(y2)*5,...
+        'MinPeakDistance',0.4);
+    approxPulsePRE = length(locsPRE);
+    %%%TEST
+    %%approxPeakHeight = median(qrspeaksPRE);
+    %%%TEST
     [qrspeaks,locs] = findpeaks(y,time,'MinPeakHeight',mean(y2)*5,...
-        'MinPeakDistance',0.3);
+        'MinPeakDistance',60/(approxPulsePRE)*0.4);      %set minDistance with knowledge about approx pulse
     approxPulse = length(locs);
 
     %find peaks that are too close and very small in local comparison
@@ -176,7 +159,7 @@ for n=1:height(datTable)
     maxQRSIrregularity5(n) = sortedIrregularities(5);
    
     %Paar Übliche Features
-    noOutlierIrregularities = sortedIrregularities(4:end);    %ohne größte 3 irregularities
+    noOutlierIrregularities = sortedIrregularities(4:end);    %ohne größte 5 irregularities (statt 3?)
     nNN50 = sum(noOutlierIrregularities>0.05);
     pNN50(n) = 100*nNN50/length(noOutlierIrregularities);         %pNN50 Anzahl große irregularities
     RMSSD(n) = mean(noOutlierIrregularities);                     %RMSSD durchschnittsvariation
@@ -205,6 +188,26 @@ for n=1:height(datTable)
     QRSVariationScore(n) = top10(4);
     QRSVariationScore2(n) = top10(6);
     QRSVariationScore3(n) = top10(8);
+
+    %%%%%%%%%%% Schlecht zu klassifizierende class 0 fälle löschen?
+    % if class(n) == 0 && QRSVariationScore3(n) > 1
+    %     QRSVariationScore(n) = [];
+    %     QRSVariationScore2(n) = [];
+    %     QRSVariationScore3(n) = [];
+    %     pNN50(n) =[];
+    %     RMSSD(n) = [];
+    %     MedianAbsDiffRR(n) = [];
+    %     maxQRSIrregularity(n) = [];
+    %     maxQRSIrregularity2(n) = [];
+    %     maxQRSIrregularity3(n) = [];
+    %     maxQRSIrregularity4(n) = [];
+    %     maxQRSIrregularity5(n) = [];
+    %     standardDeviationQRS(n) = [];
+    %     class(n) = [];
+    % 
+    %     continue;
+    % end
+    %%%%%%%%%%
     QRSVariationScoreX(n) = sum(top10(4:end));
     totalIrregularitySum(n) = sum(qrsDistanceVariation);
     length(locs)
@@ -253,8 +256,13 @@ for n=1:height(datTable)
     waitfor(f2)
     waitfor(f3)
     end
-    
+if class(n) == 0 && QRSVariationScore(n) > 1
+    counter = counter+1;
 end
+end
+counter
+counter
+counter
 
 
 %% Generate Classification Table
