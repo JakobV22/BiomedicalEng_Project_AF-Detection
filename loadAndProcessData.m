@@ -22,11 +22,7 @@ plotECGdata = 0;
 datTable = readtable('ECGs_CSV_train\_DataFile.csv');
 
 
-%%%%%%%%%%
-load("TrainingTable.mat");
-trQRSVariationScore1 = trainingTable.QRSTop3Variation;
-sortedTrQRS1 = sort(trQRSVariationScore1, 'descend');
-sortedTrQRS1(50)
+
 
 
 counter=0;
@@ -58,37 +54,44 @@ for n=1:height(datTable)
    
     
     %Filter?
+    %Nach einigen Tests schein Butterwort Bandpass 2. Ordnung, 7-20Hz
+    %solide zu funktionieren
     [b, a] = butter(2, [7 20]/(F_s/2), 'bandpass');
     filtered_ecg = filtfilt(b, a, ECG);
     
 
     
 
-    %TEST
-    %anderer wavelet ansatz chatgpt
-    [c,l] = wavedec(filtered_ecg, 5, 'sym4');   %db4 bisschen besser als sym4 aktuell
+    %Wavelet Transformation
+    %sym4 solide, db4 alternative
+    [c,l] = wavedec(filtered_ecg, 5, 'sym4');   
     d3 = wrcoef('d', c, l, 'sym4', 3);  
     d4 = wrcoef('d', c, l, 'sym4', 4);
     d5 = wrcoef('d', c, l, 'sym4', 5);
+
+    %Gewichtung der einzelnen Frequenzbereiche
+    %4 essentiell, 3 wichtige ergänzung, 5 gute ergänzung (meistens)
     a3=1;
     a4=1;
     a5=1;
     y = a3*d3 + a4*d4 +a5*d5 ;                      %ursprünglich 4 und 5, aber 3 und 4 besser als 4 und 5
    
+    %Generierung von Vergleichshöhe für Peaks
     y = abs(y).^2;
     y2 = y;
     percentileThreshold = prctile(y, 95);
     y2 = y2(y2<percentileThreshold);
+
     qrspeaks = [];
     
+    %1. Peak-Extraction für Vergleichswert für Peak-Abstände
     [qrspeaksPRE,locsPRE] = findpeaks(y,time,'MinPeakHeight',mean(y2)*5,...
         'MinPeakDistance',0.4);
     approxPulsePRE = length(locsPRE);
-    %%%TEST
-    %%approxPeakHeight = median(qrspeaksPRE);
-    %%%TEST
+    
+    %2. (finale) Peak-Extraktion
     [qrspeaks,locs] = findpeaks(y,time,'MinPeakHeight',mean(y2)*5,...
-        'MinPeakDistance',60/(approxPulsePRE)*0.4);      %set minDistance with knowledge about approx pulse
+        'MinPeakDistance',60/(approxPulsePRE)*0.4);      %set minDistance with knowledge about approx pulse: 
     approxPulse = length(locs);
 
     %find peaks that are too close and very small in local comparison
@@ -124,7 +127,7 @@ for n=1:height(datTable)
 
     %Abstände der einzelnen QRS-Komplexe
     qrsDistance = zeros(1, length(locs)-1);
-    if length(locs)>1    %locs mittlerweile >=38 min also egal
+    if length(locs)>1    %length(locs) mittlerweile >=38 min also egal
     for m=2:length(locs)
         qrsDistance(m-1) = locs(m)-locs(m-1);
         
@@ -139,8 +142,8 @@ for n=1:height(datTable)
     %Standardabweichung aller QRS-Abstände
     standardDeviationQRS(n) = std(qrsDistance);
     
+    
     %Find Differences between adjacent qrs intervals
-     
     if length(qrsDistance)>1
     qrsDistanceVariation = zeros(1, length(qrsDistance)-1);
     for m=2:length(qrsDistance)
@@ -159,6 +162,8 @@ for n=1:height(datTable)
     maxQRSIrregularity5(n) = sortedIrregularities(5);
    
     %Paar Übliche Features
+    %basierend auf einfachen Durchchnitten und Summierungen der
+    %Irregularities
     noOutlierIrregularities = sortedIrregularities(4:end);    %ohne größte 5 irregularities (statt 3?)
     nNN50 = sum(noOutlierIrregularities>0.05);
     pNN50(n) = 100*nNN50/length(noOutlierIrregularities);         %pNN50 Anzahl große irregularities
@@ -208,16 +213,22 @@ for n=1:height(datTable)
     %     continue;
     % end
     %%%%%%%%%%
-    QRSVariationScoreX(n) = sum(top10(4:end));
-    totalIrregularitySum(n) = sum(qrsDistanceVariation);
-    length(locs)
+
+
+    %weitere total scores
+    QRSVariationScoreX(n) = sum(top10(4:end)); %summiert Variation scores auf
+    totalIrregularitySum(n) = sum(noOutlierIrregularities); %bisschen blöd bei unterschiedlichen Pulsen
     numberExtrQRS(n) = length(locs);
     %
+
+
+
     % Example:
     standardDeviation(n) = std(ECG);
     dataQuality(n) = datTable.signalQuality_0Excellent_1Good_2Bad_3Uninterpretable(n);
     %
     %%
+
 
     % Plot data for visual inspection
     if plotECGdata==1 && class(n) == 0 && QRSVariationScore3(n) > 1
@@ -250,12 +261,166 @@ for n=1:height(datTable)
    
     ylabel('ECG [mV]')
     xlabel('Time [s]')
+
+  
+
+    
         
     %pause;
     waitfor(f1)
     waitfor(f2)
     waitfor(f3)
     end
+
+  %%%% QRS Distance ausreißer entfernen:
+    k = 2;  % Anzahl der Extremwerte, die du entfernen willst
+
+    qrs = qrsDistance;  % Originaldaten
+    
+    % Sortiere die Werte und finde die Grenzwerte
+    sorted = sort(qrs);
+    lowThresh = sorted(k);                  % Schwelle für kleinste k Werte
+    highThresh = sorted(end - k + 1);       % Schwelle für größte k Werte
+    
+    % Erstelle eine Maske für alle Werte, die *nicht* zu den Extremwerten gehören
+    mask = (qrs > lowThresh) & (qrs < highThresh);
+    
+    % Neue Version ohne die Extremwerte, Reihenfolge bleibt erhalten
+    qrsFiltered = qrs(mask);
+
+    %%%%%im folgenden qrsDistance größtenteils ersetzt durch filtered
+    %%%%%variante
+
+        % Zusätzliche Feature 1: Herzfrequenz aus RR-Intervallen
+    pulseRate = 60 ./ qrsFiltered; % [bpm]
+    pulseStd(n) = std(pulseRate); % Schwankung im Puls = Hinweis auf AF
+
+    % Feature 2: mittlere Differenz zwischen RR-Intervallen
+    meanDiffRR(n) = mean(abs(diff(qrsFiltered))); % absolute Änderungen zwischen Schlägen
+
+    % Feature 3: Interquartilsabstand
+    iqrRR1(n) = iqr(qrsDistance); % robustes Streuungsmaß
+    iqrRR2(n) = iqr(qrsFiltered); % robustes Streuungsmaß
+
+    % Feature 4: Maximalbereich
+    rangeRR(n) = range(qrsDistance); % Max-Min der RR-Intervalle
+
+    % Feature: Poincare -Diagramm Analyse (nichtlineare Dynamik)
+    if length(qrsFiltered) > 2
+    xRR = qrsFiltered(1:end-1);
+    yRR = qrsFiltered(2:end);
+    diffRR = yRR - xRR;
+    sumRR = yRR + xRR;
+    SD1(n) = std(diffRR) / sqrt(2); % kurzfristige HRV-Komponente
+    SD2(n) = std(sumRR) / sqrt(2); % langfristige HRV-Komponente
+    SD1_SD2_ratio(n) = SD1(n) / SD2(n); % Verhältnis als Maß für chaotische Unregelmäigkeit
+
+    else
+    SD1(n) = NaN;
+    SD2(n) = NaN;
+    SD1_SD2_ratio(n) = NaN;
+    end
+
+    % weitere features
+    rrHist = histcounts(qrsFiltered, 20, 'Normalization', 'probability');
+
+    rrEntropy(n) = -nansum(rrHist .* log2(rrHist + eps)); % Shannon Entropie
+
+    rrKurtosis(n) = kurtosis(qrsFiltered); % Spitzigkeit
+
+    rrSkewness(n) = skewness(qrsFiltered); % Schiefe
+
+
+
+    % Einfache Approximation von Sample Entropy
+    rr = qrsFiltered;
+    m = 2; r = 0.2 * std(rr); N = length(rr);
+    count = 0; total = 0;
+    for i = 1:N - m
+    for j = i+1:N - m
+    if max(abs(rr(i:i+m-1) - rr(j:j+m-1))) < r
+    total = total + 1;
+    if abs(rr(i+m) - rr(j+m)) < r
+    count = count + 1;
+    end
+    end
+    end
+    end
+    if total == 0
+    sampleEntropy(n) = NaN;
+    else
+    sampleEntropy(n) = -log(count / total + eps);
+    end
+
+
+    %Turning Point Ratio
+    rr = qrsFiltered;
+    tpr = sum((rr(2:end-1) - rr(1:end-2)) .* (rr(2:end-1) - rr(3:end)) > 0);
+    tpr = tpr / (length(rr) - 2);
+    turningPointRatio(n) = tpr;
+
+    %Lempel-Ziv-Komplexität (LZC)
+    rrBinary = qrsFiltered > mean(qrsFiltered);
+    rrString = char(rrBinary + '0');
+    uniquePatterns = {};
+    i = 1;
+    while i <= length(rrString)
+    for j = i+1:length(rrString)
+    if ~any(strcmp(rrString(i:j), uniquePatterns))
+    uniquePatterns{end+1} = rrString(i:j);
+    break;
+    end
+    end
+    i = i + 1;
+    end
+    LZC(n) = length(uniquePatterns) / log2(length(rrBinary) + eps);
+
+
+
+    try
+    % Frequenzanalyse mit Lomb-Scargle
+    rrTime = cumsum([0, qrsFiltered]); % Zeitvektor aus RR-Abständen
+    [pxx, f] = plomb(qrsFiltered, rrTime(1:end-1));
+    maxF = max(f); % maximale analysierte Frequenz
+    % Low und High Frequency Power
+    if maxF >= 0.15
+    LF(n) = bandpower(pxx, f, [0.04 0.15], 'psd');
+    HF(n) = bandpower(pxx, f, [0.15 0.4], 'psd');
+    elseif maxF >= 0.04
+    LF(n) = bandpower(pxx, f, [0.04 min(0.15, maxF)], 'psd');
+    HF(n) = NaN;
+    else
+    LF(n) = NaN;
+    HF(n) = NaN;
+    end
+
+    % Gesamte Power im Bereich
+    if maxF >= 0.04
+    totalPower(n) = bandpower(pxx, f, [0.04 maxF], 'psd');
+    else
+    totalPower(n) = NaN;
+    end
+
+    % Verhältnis LF/HF
+    if ~isnan(LF(n)) && ~isnan(HF(n)) && HF(n) > 0
+    LF_HF_ratio(n) = LF(n) / HF(n);
+    else
+    LF_HF_ratio(n) = NaN;
+    end
+
+    % Dominante Frequenz
+    [~, maxIdx] = max(pxx);
+    peakFreq(n) = f(maxIdx);
+    catch
+    % Bei Fehlern: NaN setzen
+    LF(n) = NaN;
+    HF(n) = NaN;
+    totalPower(n) = NaN;
+    LF_HF_ratio(n) = NaN;
+    peakFreq(n) = NaN;
+    end
+
+%%Debug Härtefälle
 if class(n) == 0 && QRSVariationScore(n) > 1
     counter = counter+1;
 end
@@ -267,17 +432,41 @@ counter
 
 %% Generate Classification Table
 % Add your features to the variable names and to the table
-varNames = {'STD',...
-            'Quality',...
-            'Class', 'STD_QRS', 'MaxIrregularityQRS3', 'MaxIrregularityQRS4', 'MaxIrregularityQRS5' 'TotalIrregularityQRS', 'NumberQRS', 'QRSTop3Variation', 'QRSTop3Variation2', 'QRSTop3Variation3', 'pNN50', 'RMSSD', 'MedianDiffRR',...
-            'QRSVariationX'};
-
-T_class = table(standardDeviation',...
-                dataQuality',class',standardDeviationQRS',maxQRSIrregularity3',maxQRSIrregularity4',maxQRSIrregularity5',...
-                totalIrregularitySum', numberExtrQRS',QRSVariationScore',QRSVariationScore2',QRSVariationScore3',pNN50', RMSSD', MedianAbsDiffRR',QRSVariationScoreX',...
+varNames = {'STD', 'Quality', 'Class', 'STD_QRS', ...
+            'MaxIrregularityQRS3', 'MaxIrregularityQRS4', 'MaxIrregularityQRS5', ...
+            'TotalIrregularityQRS', 'NumberQRS', ...
+            'QRSTop3Variation', 'QRSTop3Variation2', 'QRSTop3Variation3', ...
+            'pNN50', 'RMSSD', 'MedianDiffRR', 'QRSVariationX', ...
+            'MeanDiffRR', 'PulseStd', 'RangeRR', 'IQR_RRraw','IQR_RRfiltered', ...
+            'SD1', 'SD2', 'SD1_SD2_ratio', ... 
+            'RR_Entropy', 'RR_Kurtosis', 'RR_Skewness', ...
+            'SampleEntropy', 'TPR', 'LZC', 'LF','HF', 'TotalPower', 'LF_HF_ratio', 'PeakFreq'};
+T_class = table(standardDeviation', ...
+                dataQuality', ...
+                class', ...
+                standardDeviationQRS', ...
+                maxQRSIrregularity3', ...
+                maxQRSIrregularity4', ...
+                maxQRSIrregularity5', ...
+                totalIrregularitySum', ...
+                numberExtrQRS', ...
+                QRSVariationScore', ...
+                QRSVariationScore2', ...
+                QRSVariationScore3', ...
+                pNN50', ...
+                RMSSD', ...
+                MedianAbsDiffRR', ...
+                QRSVariationScoreX', ...
+                meanDiffRR', ...
+                pulseStd', ...
+                rangeRR', ...
+                iqrRR1',iqrRR1', ...
+                SD1', SD2', SD1_SD2_ratio', ...
+                rrEntropy', rrKurtosis', rrSkewness', ...
+                sampleEntropy', turningPointRatio', LZC', ...
+                 LF', HF', totalPower', LF_HF_ratio', peakFreq', ...
                 'VariableNames', varNames);
 
-            
 % save the training data
 trainingTable = T_class;
 
