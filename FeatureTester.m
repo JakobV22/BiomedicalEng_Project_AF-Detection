@@ -15,7 +15,7 @@ minFeatures = 6;
 maxFeatures = 8;
 maxCombosPerK = 150;
 
-rng(2); % Für Reproduzierbarkeit
+rng(1); % Für Reproduzierbarkeit
 
 % --------------------------------------------------------
 % COMBINATIONS SAMMELN
